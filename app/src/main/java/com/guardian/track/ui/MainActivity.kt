@@ -4,73 +4,69 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
+import androidx.annotation.RequiresApi
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.content.ContextCompat
-import androidx.navigation.fragment.NavHostFragment
-import androidx.navigation.ui.setupWithNavController
-import com.guardian.track.R
-import com.guardian.track.databinding.ActivityMainBinding
+import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
 import com.guardian.track.service.SurveillanceService
+import com.guardian.track.ui.dashboard.DashboardScreen
+import com.guardian.track.ui.history.HistoryScreen
+import com.guardian.track.ui.settings.SettingsScreen
+import com.guardian.track.ui.theme.GuardianTrackTheme
 import dagger.hilt.android.AndroidEntryPoint
 
-/**
- * MainActivity — the single activity in our Single Activity Architecture.
- *
- * Its only job:
- *  1. Set up the NavController (Navigation Component manages Fragment swaps).
- *  2. Set up BottomNavigationView linked to the NavController.
- *  3. Request runtime permissions.
- *  4. Start the SurveillanceService.
- *
- * All business logic lives in ViewModels, not here.
- *
- * @AndroidEntryPoint tells Hilt this is an injection target.
- */
+sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
+    data object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Home)
+    data object History : Screen("history", "History", Icons.Default.History)
+    data object Settings : Screen("settings", "Settings", Icons.Default.Settings)
+}
+
 @AndroidEntryPoint
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
 
-    private lateinit var binding: ActivityMainBinding
-
-    // Modern permission request API — replaces onRequestPermissionsResult
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
-        // Log which permissions were granted/denied
         results.forEach { (permission, granted) ->
             android.util.Log.d("MainActivity", "$permission granted=$granted")
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.P)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
-
-        setupNavigation()
+        
         requestPermissions()
         SurveillanceService.startService(this)
+
+        setContent {
+            GuardianTrackTheme {
+                MainScreen()
+            }
+        }
     }
 
-    private fun setupNavigation() {
-        val navHostFragment = supportFragmentManager
-            .findFragmentById(R.id.nav_host_fragment) as NavHostFragment
-        val navController = navHostFragment.navController
-
-        // BottomNavigationView automatically handles back stack and tab switching
-        binding.bottomNavigation.setupWithNavController(navController)
-    }
-
-    /**
-     * Requests all permissions the app needs.
-     * We request them all at once here for simplicity.
-     * In production, request permissions contextually (just before you need them).
-     */
     private fun requestPermissions() {
         val needed = buildList {
             add(Manifest.permission.ACCESS_FINE_LOCATION)
             add(Manifest.permission.SEND_SMS)
-            // POST_NOTIFICATIONS only exists on Android 13+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.POST_NOTIFICATIONS)
             }
@@ -80,6 +76,52 @@ class MainActivity : AppCompatActivity() {
 
         if (needed.isNotEmpty()) {
             permissionLauncher.launch(needed.toTypedArray())
+        }
+    }
+}
+
+@RequiresApi(Build.VERSION_CODES.P)
+@Composable
+fun MainScreen() {
+    val navController = rememberNavController()
+    val items = listOf(
+        Screen.Dashboard,
+        Screen.History,
+        Screen.Settings
+    )
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                val navBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentDestination = navBackStackEntry?.destination
+                items.forEach { screen ->
+                    NavigationBarItem(
+                        icon = { Icon(screen.icon, contentDescription = null) },
+                        label = { Text(screen.label) },
+                        selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
+                        onClick = {
+                            navController.navigate(screen.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    ) { innerPadding ->
+        NavHost(
+            navController = navController,
+            startDestination = Screen.Dashboard.route,
+            modifier = Modifier.padding(innerPadding)
+        ) {
+            composable(Screen.Dashboard.route) { DashboardScreen() }
+            composable(Screen.History.route) { HistoryScreen() }
+            composable(Screen.Settings.route) { SettingsScreen() }
         }
     }
 }

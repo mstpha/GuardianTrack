@@ -9,7 +9,6 @@ import com.guardian.track.BuildConfig
 import com.guardian.track.data.local.AppDatabase
 import com.guardian.track.data.local.dao.EmergencyContactDao
 import com.guardian.track.data.local.dao.IncidentDao
-import com.guardian.track.data.remote.api.GuardianApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -51,35 +50,7 @@ object DatabaseModule {
  * The API base URL comes from BuildConfig, which reads local.properties.
  * The logging interceptor prints HTTP traffic to Logcat in debug builds.
  */
-@Module
-@InstallIn(SingletonComponent::class)
-object NetworkModule {
 
-    @Provides
-    @Singleton
-    fun provideOkHttp(): OkHttpClient =
-        OkHttpClient.Builder()
-            .addInterceptor(
-                HttpLoggingInterceptor().apply {
-                    level = HttpLoggingInterceptor.Level.BODY
-                }
-            )
-            .build()
-
-    @Provides
-    @Singleton
-    fun provideRetrofit(okHttp: OkHttpClient): Retrofit =
-        Retrofit.Builder()
-            .baseUrl(BuildConfig.API_BASE_URL)
-            .client(okHttp)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-
-    @Provides
-    @Singleton
-    fun provideApi(retrofit: Retrofit): GuardianApi =
-        retrofit.create(GuardianApi::class.java)
-}
 
 /**
  * AppModule — provides miscellaneous singletons that don't fit the other modules.

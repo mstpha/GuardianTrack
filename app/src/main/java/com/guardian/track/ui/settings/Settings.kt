@@ -1,14 +1,16 @@
 package com.guardian.track.ui.settings
 
-import android.os.Bundle
-import android.view.*
-import androidx.fragment.app.Fragment
-import androidx.fragment.app.viewModels
-import androidx.lifecycle.*
-import com.guardian.track.databinding.FragmentSettingsBinding
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.guardian.track.data.local.PreferencesManager
 import com.guardian.track.util.SecureStorage
-import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -21,7 +23,7 @@ import javax.inject.Inject
 data class SettingsUiState(
     val fallThreshold: Float = 15.0f,
     val darkMode: Boolean = false,
-    val smsSimulationMode: Boolean = true,  // DEFAULT ON — spec requirement
+    val smsSimulationMode: Boolean = true,
     val emergencyNumber: String = ""
 )
 
@@ -35,10 +37,6 @@ class SettingsViewModel @Inject constructor(
     private val secureStorage: SecureStorage
 ) : ViewModel() {
 
-    /**
-     * Combines multiple DataStore Flows into one UI state using combine().
-     * Any time one of the four preferences changes, a new SettingsUiState is emitted.
-     */
     val uiState: StateFlow<SettingsUiState> = combine(
         prefsManager.fallThreshold,
         prefsManager.darkMode,
@@ -68,84 +66,91 @@ class SettingsViewModel @Inject constructor(
     fun setEmergencyNumber(number: String) {
         viewModelScope.launch {
             prefsManager.setEmergencyNumber(number)
-            // Also save encrypted copy
             secureStorage.saveEmergencyNumber(number)
         }
     }
 }
 
 // ─────────────────────────────────────────────
-//  Fragment
+//  Composable Screen
 // ─────────────────────────────────────────────
 
-@AndroidEntryPoint
-class SettingsFragment : Fragment() {
+@Composable
+fun SettingsScreen(
+    viewModel: SettingsViewModel = hiltViewModel()
+) {
+    val state by viewModel.uiState.collectAsState()
 
-    private val viewModel: SettingsViewModel by viewModels()
-    private var _binding: FragmentSettingsBinding? = null
-    private val binding get() = _binding!!
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        Text(text = "Settings", style = MaterialTheme.typography.headlineMedium)
 
-    // Prevent feedback loop: when we programmatically set SeekBar progress,
-    // it would trigger the listener and call ViewModel again
-    private var isUpdatingUi = false
+        // Fall Threshold
+        Column {
+            Text(text = "Fall Detection Threshold: ${state.fallThreshold.toInt()} m/s²")
+            Slider(
+                value = state.fallThreshold,
+                onValueChange = { viewModel.setFallThreshold(it) },
+                valueRange = 5f..30f,
+                steps = 25
+            )
+        }
 
-    override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
-    ): View {
-        _binding = FragmentSettingsBinding.inflate(inflater, container, false)
-        return binding.root
-    }
+        // Dark Mode Switch
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text = "Dark Mode")
+            Switch(
+                checked = state.darkMode,
+                onCheckedChange = { viewModel.setDarkMode(it) }
+            )
+        }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+        // SMS Simulation Switch
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = "SMS Simulation Mode")
+                Text(
+                    text = "If enabled, SMS won't be sent, only logged.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(
+                checked = state.smsSimulationMode,
+                onCheckedChange = { viewModel.setSmsSimulationMode(it) }
+            )
+        }
 
-        // Observe settings
-        viewLifecycleOwner.lifecycleScope.launch {
-            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.uiState.collect { state ->
-                    isUpdatingUi = true
-                    binding.seekbarThreshold.progress = state.fallThreshold.toInt()
-                    binding.tvThresholdValue.text = "${state.fallThreshold.toInt()} m/s²"
-                    binding.switchDarkMode.isChecked = state.darkMode
-                    binding.switchSmsSimulation.isChecked = state.smsSimulationMode
-                    if (binding.etEmergencyNumber.text.toString() != state.emergencyNumber) {
-                        binding.etEmergencyNumber.setText(state.emergencyNumber)
-                    }
-                    isUpdatingUi = false
-                }
+        // Emergency Number
+        var tempNumber by remember(state.emergencyNumber) { mutableStateOf(state.emergencyNumber) }
+        
+        Column {
+            Text(text = "Emergency Phone Number")
+            OutlinedTextField(
+                value = tempNumber,
+                onValueChange = { tempNumber = it.filter { char -> char.isDigit() } },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Enter number") },
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = { viewModel.setEmergencyNumber(tempNumber) },
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text("Save Number")
             }
         }
-
-        // SeekBar for fall detection threshold (5..30 m/s²)
-        binding.seekbarThreshold.setOnSeekBarChangeListener(object :
-            android.widget.SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser && !isUpdatingUi) {
-                    val clamped = progress.coerceIn(5, 30).toFloat()
-                    binding.tvThresholdValue.text = "$clamped m/s²"
-                    viewModel.setFallThreshold(clamped)
-                }
-            }
-            override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
-            override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
-        })
-
-        binding.switchDarkMode.setOnCheckedChangeListener { _, checked ->
-            if (!isUpdatingUi) viewModel.setDarkMode(checked)
-        }
-
-        binding.switchSmsSimulation.setOnCheckedChangeListener { _, checked ->
-            if (!isUpdatingUi) viewModel.setSmsSimulationMode(checked)
-        }
-
-        binding.btnSaveNumber.setOnClickListener {
-            val number = binding.etEmergencyNumber.text.toString().filter { it.isDigit() }
-            viewModel.setEmergencyNumber(number)
-        }
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
     }
 }

@@ -1,22 +1,33 @@
 package com.guardian.track.ui.history
 
-import android.os.Bundle
-import android.view.*
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
-import androidx.fragment.app.Fragment
-import androidx.fragment.app.viewModels
-import androidx.lifecycle.*
-import com.guardian.track.databinding.FragmentHistoryBinding
-import com.guardian.track.databinding.ItemIncidentBinding
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.material.DismissDirection
+import androidx.compose.material.DismissValue
+import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.SwipeToDismiss
+import androidx.compose.material.rememberDismissState
+
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.guardian.track.model.Incident
 import com.guardian.track.repository.IncidentRepository
 import com.guardian.track.util.CsvExporter
-import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ItemTouchHelper
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.ListAdapter
-import androidx.recyclerview.widget.RecyclerView
-import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
@@ -32,12 +43,6 @@ class HistoryViewModel @Inject constructor(
     private val incidentRepository: IncidentRepository
 ) : ViewModel() {
 
-    /**
-     * stateIn converts a cold Flow into a hot StateFlow.
-     * SharingStarted.WhileSubscribed(5000): keeps the upstream Flow active for 5s
-     * after the last subscriber disappears (e.g. during rotation) to avoid
-     * restarting the Room query on every rotation.
-     */
     val incidents = incidentRepository.getAllIncidents()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -49,124 +54,132 @@ class HistoryViewModel @Inject constructor(
 }
 
 // ─────────────────────────────────────────────
-//  DiffUtil Callback — efficient list updates
+//  Composable Screen
 // ─────────────────────────────────────────────
 
-/**
- * DiffUtil calculates the minimal set of changes needed to update the RecyclerView.
- * Without it, notifyDataSetChanged() would rebind every row on every update.
- * With it, only changed rows are animated/rebound.
- */
-class IncidentDiffCallback : DiffUtil.ItemCallback<Incident>() {
-    override fun areItemsTheSame(old: Incident, new: Incident) = old.id == new.id
-    override fun areContentsTheSame(old: Incident, new: Incident) = old == new
-}
+@OptIn(ExperimentalMaterialApi::class)
+@Composable
+fun HistoryScreen(
+    viewModel: HistoryViewModel = hiltViewModel()
+) {
+    val incidents by viewModel.incidents.collectAsState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
-// ─────────────────────────────────────────────
-//  RecyclerView Adapter
-// ─────────────────────────────────────────────
-
-class IncidentAdapter(
-    private val onDelete: (Long) -> Unit
-) : ListAdapter<Incident, IncidentAdapter.ViewHolder>(IncidentDiffCallback()) {
-
-    inner class ViewHolder(private val binding: ItemIncidentBinding) :
-        RecyclerView.ViewHolder(binding.root) {
-
-        fun bind(incident: Incident) {
-            binding.tvDate.text = "${incident.formattedDate} ${incident.formattedTime}"
-            binding.tvType.text = incident.type
-            binding.tvLocation.text = if (incident.latitude == 0.0 && incident.longitude == 0.0)
-                "Location unavailable"
-            else
-                "%.4f, %.4f".format(incident.latitude, incident.longitude)
-            binding.tvSynced.text = if (incident.isSynced) "✓ Synced" else "⏳ Pending"
-        }
-    }
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val binding = ItemIncidentBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return ViewHolder(binding)
-    }
-
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) =
-        holder.bind(getItem(position))
-}
-
-// ─────────────────────────────────────────────
-//  Fragment
-// ─────────────────────────────────────────────
-
-@AndroidEntryPoint
-class HistoryFragment : Fragment() {
-
-    private val viewModel: HistoryViewModel by viewModels()
-    private var _binding: FragmentHistoryBinding? = null
-    private val binding get() = _binding!!
-
-    private lateinit var adapter: IncidentAdapter
-
-    override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
-    ): View {
-        _binding = FragmentHistoryBinding.inflate(inflater, container, false)
-        return binding.root
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        adapter = IncidentAdapter(onDelete = { id -> viewModel.deleteIncident(id) })
-
-        binding.recyclerView.apply {
-            this.adapter = this@HistoryFragment.adapter
-            layoutManager = LinearLayoutManager(requireContext())
-
-            // Swipe-to-delete
-            ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
-                override fun onMove(
-                    rv: RecyclerView,
-                    vh: RecyclerView.ViewHolder,
-                    target: RecyclerView.ViewHolder
-                ) = false
-                override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {
-                    val position = vh.bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: return
-                    val incident = this@HistoryFragment.adapter.currentList[position]
-                    viewModel.deleteIncident(incident.id)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = "History", style = MaterialTheme.typography.headlineMedium)
+            Button(onClick = {
+                scope.launch {
+                    val allIncidents = viewModel.getAllForExport()
+                    val success = CsvExporter.export(context, allIncidents)
+                    Toast.makeText(
+                        context,
+                        if (success) "Exported to Documents/" else "Export failed",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
-
-
-            }).attachToRecyclerView(binding.recyclerView)
-
-        }
-
-        // Observe the StateFlow
-        viewLifecycleOwner.lifecycleScope.launch {
-            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.incidents.collect { incidents ->
-                    adapter.submitList(incidents)
-                    binding.tvEmpty.visibility = if (incidents.isEmpty()) View.VISIBLE else View.GONE
-                }
+            }) {
+                Text("Export CSV")
             }
         }
 
-        binding.btnExport.setOnClickListener { exportToCsv() }
-    }
+        Spacer(modifier = Modifier.height(16.dp))
 
-    private fun exportToCsv() {
-        lifecycleScope.launch {
-            val incidents = viewModel.getAllForExport()
-            val success = CsvExporter.export(requireContext(), incidents)
-            Toast.makeText(
-                requireContext(),
-                if (success) "Exported to Documents/" else "Export failed",
-                Toast.LENGTH_SHORT
-            ).show()
+        if (incidents.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No incidents recorded")
+            }
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(incidents, key = { it.id }) { incident ->
+                    val dismissState = rememberDismissState(
+                        confirmStateChange = { state ->
+                            if (state == DismissValue.DismissedToEnd || state == DismissValue.DismissedToStart) {
+                                viewModel.deleteIncident(incident.id)
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                    )
+
+
+                    SwipeToDismiss(
+                        state = dismissState,
+                        directions = setOf(DismissDirection.StartToEnd, DismissDirection.EndToStart),
+                        background = { /* optional red background + icon */ },
+                        dismissContent = {
+                            IncidentItem(
+                                incident = incident,
+                                onDelete = { viewModel.deleteIncident(incident.id) }
+                            )
+                        }
+                    )
+                }
+
+            }
         }
     }
+}
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
+@Composable
+fun IncidentItem(
+    incident: Incident,
+    onDelete: () -> Unit
+) {
+    val context = LocalContext.current
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "${incident.formattedDate} ${incident.formattedTime}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(text = incident.type, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = if (incident.latitude == 0.0 && incident.longitude == 0.0)
+                        "Location unavailable"
+                    else
+                        "Location",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    textDecoration = TextDecoration.Underline,
+                    modifier = Modifier.clickable {
+                        val uri = Uri.parse("https://maps.google.com/?q=${incident.latitude},${incident.longitude}")
+                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                    }
+                )
+                Text(
+
+                    text = if (incident.isSynced) "✓ Synced" else "⏳ Pending",
+                    color = if (incident.isSynced) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete")
+            }
+        }
     }
 }

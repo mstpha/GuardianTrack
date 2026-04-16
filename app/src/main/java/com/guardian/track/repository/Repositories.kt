@@ -7,11 +7,17 @@ import com.guardian.track.data.local.dao.EmergencyContactDao
 import com.guardian.track.data.local.dao.IncidentDao
 import com.guardian.track.data.local.entity.EmergencyContactEntity
 import com.guardian.track.data.local.entity.IncidentEntity
-import com.guardian.track.data.remote.api.GuardianApi
-import com.guardian.track.data.remote.dto.IncidentDto
+import com.guardian.track.data.remote.SupabaseProvider
+import android.provider.Settings
+import com.guardian.track.data.remote.dto.IncidentFetchDto
+import com.guardian.track.data.remote.dto.IncidentInsertDto
 import com.guardian.track.model.*
 import com.guardian.track.worker.SyncWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Count
+import io.github.jan.supabase.postgrest.query.Returning
+import io.github.jan.supabase.postgrest.result.PostgrestResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -32,7 +38,6 @@ import javax.inject.Singleton
 @Singleton
 class IncidentRepository @Inject constructor(
     private val incidentDao: IncidentDao,
-    private val api: GuardianApi,
     private val workManager: WorkManager,
     @ApplicationContext private val context: Context
 ) {
@@ -41,6 +46,13 @@ class IncidentRepository @Inject constructor(
      * The .map{} transforms List<Entity> → List<Incident> before the ViewModel sees it.
      * Room emits automatically whenever the table changes.
      */
+
+    private val deviceId: String
+        get() = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ANDROID_ID
+        )
+
     fun getAllIncidents(): Flow<List<Incident>> =
         incidentDao.getAllIncidents().map { entities ->
             entities.map { entity ->
@@ -60,11 +72,8 @@ class IncidentRepository @Inject constructor(
      * Saves an incident then attempts immediate sync.
      * If sync fails → schedules WorkManager for later.
      */
-    suspend fun saveAndSync(
-        type: String,
-        latitude: Double,
-        longitude: Double
-    ) {
+    suspend fun saveAndSync(type: String, latitude: Double, longitude: Double) {
+        // 1. Room first — data is never lost even if network is down
         val entity = IncidentEntity(
             timestamp = System.currentTimeMillis(),
             type = type,
@@ -72,49 +81,110 @@ class IncidentRepository @Inject constructor(
             longitude = longitude,
             isSynced = false
         )
-        val id = incidentDao.insertIncident(entity)
+        val localId = incidentDao.insertIncident(entity)
 
-        // Attempt immediate upload
-        try {
-            val response = api.postIncident(
-                IncidentDto(entity.timestamp, type, latitude, longitude)
+        // 2. Try Supabase immediately
+        tryPushToSupabase(localId, entity.timestamp, type, latitude, longitude)
+    }
+
+    // Called by SyncWorker — retries all rows that never made it to Supabase
+    suspend fun syncPendingIncidents() {
+        incidentDao.getUnsyncedIncidents().forEach { entity ->
+            tryPushToSupabase(
+                entity.id, entity.timestamp,
+                entity.type, entity.latitude, entity.longitude
             )
-            if (response.isSuccessful) {
-                incidentDao.markAsSynced(id)
-            } else {
-                scheduleSyncWork()
+        }
+    }
+
+    suspend fun fetchRemoteAndMerge() {
+        try {
+            val remote = SupabaseProvider.client
+                .postgrest["incidents"]
+                .select {
+                    filter {
+                        eq("device_id", deviceId)
+                    }
+                }
+                .decodeList<IncidentFetchDto>()
+
+            remote.forEach { dto ->
+                val exists = incidentDao.getByTimestampAndType(dto.timestamp, dto.type)
+                if (exists == null) {
+                    incidentDao.insertIncident(
+                        IncidentEntity(
+                            timestamp = dto.timestamp,
+                            type = dto.type,
+                            latitude = dto.latitude,
+                            longitude = dto.longitude,
+                            isSynced = true
+                        )
+                    )
+                }
             }
         } catch (e: Exception) {
-            Log.d("IncidentRepo", "Network unavailable, scheduling sync: ${e.message}")
+            Log.e("IncidentRepo", "fetchRemoteAndMerge failed: ${e.message}")
+        }
+    }
+
+    suspend fun deleteIncident(id: Long) {
+        try {
+            val result = SupabaseProvider.client.postgrest["incidents"].delete {
+                filter { eq("id", id) }
+            }
+            incidentDao.deleteById(id)
+        } catch (e: Exception) {
+            Log.e("IncidentRepo", "Failed to delete incident $id from Supabase: ${e.message}")
+        }
+    }
+
+    suspend fun getAllForExport() = incidentDao.getAllIncidentsOnce()
+    private suspend fun tryPushToSupabase(
+        localId: Long,
+        timestamp: Long,
+        type: String,
+        latitude: Double,
+        longitude: Double
+    ) {
+        try {
+            SupabaseProvider.client
+                .postgrest["incidents"]
+                .insert(
+                    IncidentInsertDto(
+                        id = localId,
+                        timestamp = timestamp,
+                        type = type,
+                        latitude = latitude,
+                        longitude = longitude
+                    )
+                )
+            incidentDao.markAsSynced(localId)
+            Log.d("IncidentRepo", "Pushed incident $localId to Supabase")
+        } catch (e: Exception) {
+            Log.d("IncidentRepo", "Push failed for $localId, WorkManager will retry: ${e.message}")
             scheduleSyncWork()
         }
     }
 
-    suspend fun deleteIncident(id: Long) = incidentDao.deleteById(id)
-
-    suspend fun getAllForExport() = incidentDao.getAllIncidentsOnce()
-
-    /**
-     * Schedules a WorkManager task that runs when network becomes available.
-     * setExpedited() hints that this is high-priority but not exact-time-critical.
-     */
     private fun scheduleSyncWork() {
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
-
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
-            .setConstraints(constraints)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
 
         workManager.enqueueUniqueWork(
             "sync_incidents",
-            ExistingWorkPolicy.KEEP,  // don't queue duplicates
+            ExistingWorkPolicy.KEEP,
             request
         )
     }
 }
+
+
 
 /**
  * Repository for emergency contacts.

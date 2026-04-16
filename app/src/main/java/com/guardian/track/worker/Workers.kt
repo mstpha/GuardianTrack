@@ -5,8 +5,6 @@ import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.guardian.track.data.local.PreferencesManager
-import com.guardian.track.data.remote.api.GuardianApi
-import com.guardian.track.data.remote.dto.IncidentDto
 import com.guardian.track.data.local.dao.IncidentDao
 import com.guardian.track.data.local.entity.IncidentEntity
 import com.guardian.track.repository.IncidentRepository
@@ -28,44 +26,18 @@ import kotlinx.coroutines.flow.first
 class SyncWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
-    private val incidentDao: IncidentDao,
-    private val api: GuardianApi
+    private val repository: IncidentRepository
 ) : CoroutineWorker(context, params) {
-
     override suspend fun doWork(): Result {
         return try {
-            val unsynced = incidentDao.getUnsyncedIncidents()
-            Log.d("SyncWorker", "Syncing ${unsynced.size} incidents")
-
-            var allSuccess = true
-            for (incident in unsynced) {
-                val response = api.postIncident(
-                    IncidentDto(incident.timestamp, incident.type, incident.latitude, incident.longitude)
-                )
-                if (response.isSuccessful) {
-                    incidentDao.markAsSynced(incident.id)
-                } else {
-                    allSuccess = false
-                    Log.w("SyncWorker", "Failed for id=${incident.id}, code=${response.code()}")
-                }
-            }
-            if (allSuccess) Result.success() else Result.retry()
+            repository.syncPendingIncidents()
+            Result.success()
         } catch (e: Exception) {
-            Log.e("SyncWorker", "Sync error: ${e.message}")
-            Result.retry()  // WorkManager will try again later
+            if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }
-
-    // Required for WorkManager to report expedited work's foreground info
-    override suspend fun getForegroundInfo(): ForegroundInfo =
-        ForegroundInfo(2, createNotification())
-
-    private fun createNotification() =
-        android.app.Notification.Builder(applicationContext, SurveillanceService.CHANNEL_ID)
-            .setContentTitle("Syncing incidents...")
-            .setSmallIcon(android.R.drawable.ic_popup_sync)
-            .build()
 }
+
 
 /**
  * BatteryCriticalWorker — saves a BATTERY incident to Room.

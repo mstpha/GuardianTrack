@@ -11,7 +11,9 @@ interface IncidentDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertIncident(incident: IncidentEntity): Long
-
+    // In IncidentDao — add alongside the existing queries
+    @Query("SELECT * FROM incidents WHERE timestamp = :timestamp AND type = :type LIMIT 1")
+    suspend fun getByTimestampAndType(timestamp: Long, type: String): IncidentEntity?
     /** Emits a new list every time the incidents table changes. */
     @Query("SELECT * FROM incidents ORDER BY timestamp DESC")
     fun getAllIncidents(): Flow<List<IncidentEntity>>

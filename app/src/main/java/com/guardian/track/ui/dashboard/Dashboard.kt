@@ -2,33 +2,36 @@ package com.guardian.track.ui.dashboard
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
+import android.os.Build
+import androidx.annotation.RequiresApi
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.fragment.app.Fragment
-import androidx.fragment.app.viewModels
-import androidx.lifecycle.*
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.google.android.gms.location.FusedLocationProviderClient
-import com.guardian.track.databinding.FragmentDashboardBinding
 import com.guardian.track.repository.IncidentRepository
 import com.guardian.track.util.NotificationHelper
-import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 // ─────────────────────────────────────────────
-//  UI State — one immutable data class
+//  UI State
 // ─────────────────────────────────────────────
 
-/**
- * Represents everything the Dashboard UI needs to display.
- * Immutable data class — the ViewModel only emits new instances, never mutates.
- */
 data class DashboardUiState(
     val incidentCount: Int = 0,
     val serviceRunning: Boolean = true,
@@ -39,16 +42,6 @@ data class DashboardUiState(
 //  ViewModel
 // ─────────────────────────────────────────────
 
-/**
- * DashboardViewModel — survives configuration changes (screen rotation).
- *
- * Why this is important: when the screen rotates, Android destroys and recreates
- * the Fragment. Without a ViewModel, all UI state would be lost. The ViewModel
- * lives in the ViewModelStore which survives rotation.
- *
- * StateFlow<DashboardUiState> is the single observable output — the Fragment
- * observes this and redraws whenever it changes.
- */
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val incidentRepository: IncidentRepository,
@@ -59,8 +52,6 @@ class DashboardViewModel @Inject constructor(
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
 
     init {
-        // Collect the Room Flow in viewModelScope.
-        // viewModelScope is automatically cancelled when the ViewModel is cleared.
         viewModelScope.launch {
             incidentRepository.getAllIncidents().collect { incidents ->
                 _uiState.update { current ->
@@ -73,10 +64,6 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Called when user taps the manual alert button.
-     * Gets current GPS location then saves a MANUAL incident.
-     */
     @Suppress("MissingPermission")
     fun triggerManualAlert() {
         viewModelScope.launch {
@@ -95,61 +82,112 @@ class DashboardViewModel @Inject constructor(
 }
 
 // ─────────────────────────────────────────────
-//  Fragment
+//  Composable Screen
 // ─────────────────────────────────────────────
 
-@AndroidEntryPoint
-class DashboardFragment : Fragment() {
+@RequiresApi(Build.VERSION_CODES.P)
+@Composable
+fun DashboardScreen(
+    viewModel: DashboardViewModel = hiltViewModel()
+) {
+    val state by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
 
-    // viewModels() delegate: creates or retrieves the ViewModel scoped to this Fragment
-    private val viewModel: DashboardViewModel by viewModels()
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "Guardian Track",
+            style = MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.Bold
+        )
+        
+        Spacer(modifier = Modifier.height(32.dp))
 
-    private var _binding: FragmentDashboardBinding? = null
-    private val binding get() = _binding!!  // only valid between onCreateView and onDestroyView
+        // Service Status Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (state.serviceRunning) 
+                    Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+            )
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val statusColor = if (state.serviceRunning) Color(0xFF4CAF50) else Color(0xFFF44336)
+                Surface(
+                    modifier = Modifier.size(12.dp),
+                    shape = CircleShape,
+                    color = statusColor
+                ) {}
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = if (state.serviceRunning) "Monitoring Active" else "Service Stopped",
+                    fontWeight = FontWeight.Medium,
+                    color=Color.Black,
+                )
+            }
+        }
 
-    override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
-    ): View {
-        _binding = FragmentDashboardBinding.inflate(inflater, container, false)
-        return binding.root
-    }
+        Spacer(modifier = Modifier.height(16.dp))
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        // Collect StateFlow with repeatOnLifecycle — pauses when Fragment is in background
-        viewLifecycleOwner.lifecycleScope.launch {
-            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.uiState.collect { state ->
-                    updateUi(state)
+        // Stats Cards
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Card(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Total Incidents", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = state.incidentCount.toString(),
+                        style = MaterialTheme.typography.headlineMedium
+                    )
+                }
+            }
+            Card(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Last Type", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = state.lastIncidentType,
+                        style = MaterialTheme.typography.headlineMedium,
+                        maxLines = 1
+                    )
                 }
             }
         }
 
-        binding.btnManualAlert.setOnClickListener {
-            if (hasLocationPermission()) {
-                viewModel.triggerManualAlert()
-                NotificationHelper.showIncidentNotification(
-                    requireContext(), "Manual Alert", "Alert sent to emergency contact."
-                )
-            } else {
-                binding.tvStatus.text = "Location permission required"
-            }
+        Spacer(modifier = Modifier.height(48.dp))
+
+        // Big Red Button
+        Button(
+            onClick = {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    viewModel.triggerManualAlert()
+                    NotificationHelper.showIncidentNotification(
+                        context, "Manual Alert", "Alert sent to emergency contact."
+                    )
+                }
+            },
+            modifier = Modifier.size(200.dp),
+            shape = CircleShape,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+        ) {
+            Text(
+                "⚠\uFE0F",
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Black
+            )
         }
-    }
-
-    private fun updateUi(state: DashboardUiState) {
-        binding.tvIncidentCount.text = "Total Incidents: ${state.incidentCount}"
-        binding.tvLastIncident.text = "Last: ${state.lastIncidentType}"
-        binding.tvServiceStatus.text = if (state.serviceRunning) "● Monitoring Active" else "○ Service Stopped"
-    }
-
-    private fun hasLocationPermission() =
-        ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) ==
-                PackageManager.PERMISSION_GRANTED
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null  // prevent memory leaks — binding holds a reference to the View
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            "Tap for manual alert",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

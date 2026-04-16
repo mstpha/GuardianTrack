@@ -12,6 +12,7 @@ plugins {
     alias(libs.plugins.hilt)
     id("org.jetbrains.kotlin.plugin.compose") version "2.0.0"
     alias(libs.plugins.ksp)
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.0.0"
 }
 
 android {
@@ -24,7 +25,9 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-
+        // Expose Supabase values from local.properties
+        buildConfigField("String", "SUPABASE_URL", "\"${localProps.getProperty("SUPABASE_URL")}\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${localProps.getProperty("SUPABASE_ANON_KEY")}\"")
         // Inject API base URL from local.properties into BuildConfig
         buildConfigField(
             "String",
@@ -34,7 +37,6 @@ android {
     }
 
     buildFeatures {
-        viewBinding = true
         buildConfig = true
         compose = true
     }
@@ -55,9 +57,6 @@ dependencies {
     implementation(libs.core.ktx)
     implementation(libs.appcompat)
     implementation(libs.material)
-    implementation(libs.constraintlayout)
-
-
     implementation("androidx.activity:activity-compose:1.9.0")
 
     // Compose BOM
@@ -72,27 +71,39 @@ dependencies {
     // Tooling
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
+
+    // Icons
+    implementation(libs.compose.icons.extended)
+
     // Lifecycle
     implementation(libs.lifecycle.viewmodel)
     implementation(libs.lifecycle.runtime)
-    //Coroutines
+
+    // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
-
-
     // Navigation
-    implementation(libs.navigation.fragment)
-    implementation(libs.navigation.ui)
+    implementation(libs.navigation.compose)
+    implementation(libs.hilt.navigation.compose)
 
-    // Room — KSP generates the DAO implementations
+    implementation("androidx.hilt:hilt-work:1.2.0")
+    ksp("androidx.hilt:hilt-compiler:1.2.0")
+    // Room
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
-    // Hilt — KSP generates the DI glue code
+    // Supabase
+    implementation("io.github.jan-tennert.supabase:postgrest-kt:2.6.1")
+    implementation("io.ktor:ktor-client-android:2.3.12")
+    // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.work)
+
+
+
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     // Retrofit + OkHttp
     implementation(libs.retrofit)
@@ -102,14 +113,13 @@ dependencies {
     // Coroutines
     implementation(libs.coroutines.android)
 
-
-    implementation(libs.recyclerview)
-
     // DataStore
     implementation(libs.datastore)
 
     // WorkManager
     implementation(libs.workmanager)
+
+    implementation("androidx.compose.material:material:1.6.7")
 
     // Security (EncryptedSharedPreferences)
     implementation(libs.security.crypto)
