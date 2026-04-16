@@ -36,7 +36,8 @@ GuardianTrack is a proactive personal safety and fall detection application buil
 ## 🔧 Setup & Installation
 
 1. **Clone the repository.**
-2. **Add Configuration:** Create a `local.properties` file in the root directory and add your Supabase credentials:
+2. **Add Configuration (API Security):** 
+   Create a `local.properties` file in the root directory. This file contains sensitive API keys and **must not be versioned** (it is excluded in `.gitignore`). Add your Supabase credentials and API base URL:
    ```properties
    SUPABASE_URL="your_supabase_url"
    SUPABASE_ANON_KEY="your_anon_key"
