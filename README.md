@@ -1,84 +1,56 @@
-# GuardianTrack — Personal Security App
+# GuardianTrack 🛡️
 
-Android security app for ISET Rades — Advanced Native Android Development (Kotlin).
+GuardianTrack is a proactive personal safety and fall detection application built with modern Android development practices. It monitors user movement in real-time to detect falls, manage battery critical events, and provide manual emergency triggers.
 
-## Architecture
+## 🚀 Features
 
-MVVM + Repository pattern + Hilt DI + Coroutines/Flow
+- **Fall Detection:** Uses an accelerometer-based algorithm to detect free-fall and impact patterns.
+- **Battery Critical Alerts:** Automatically logs and notifies when the device battery reaches a critical level (15%).
+- **Manual Panic Button:** Quick-access trigger for immediate emergency alerts.
+- **Offline-First Storage:** Uses Room database to ensure no incident data is lost, even without internet.
+- **Cloud Sync:** Background synchronization with **Supabase** via WorkManager for centralized monitoring.
+- **SMS Alerts:** Notifies emergency contacts automatically during high-risk incidents.
+- **Map Integration:** Quick links to view incident locations directly in Google Maps.
+- **Export Data:** Export your incident history to CSV for external analysis.
 
-```
-UI (Fragments) → ViewModels → Repositories → Room / Retrofit / DataStore
-```
+## 🛠️ Tech Stack
 
-## Setup Instructions
+- **UI:** Jetpack Compose (Material 3)
+- **Architecture:** MVVM + Clean Architecture + Repository Pattern
+- **Dependency Injection:** Hilt
+- **Local DB:** Room
+- **Background Tasks:** WorkManager
+- **Networking:** Retrofit + Ktor (for Supabase)
+- **Concurrency:** Kotlin Coroutines & Flow
+- **Location Services:** Google Play Services Location
 
-### 1. Clone and open in Android Studio
+## 🏗️ Project Structure
 
-```bash
-git clone <your-repo-url>
-```
-Open Android Studio → Open → select the `GuardianTrack` folder.
+- `data/local`: Room entities, DAOs, and database configuration.
+- `data/remote`: Retrofit API definitions and DTOs for Supabase integration.
+- `repository`: The single source of truth managing data flow between local and remote.
+- `ui`: Compose screens, ViewModels, and state management.
+- `worker`: Background jobs for synchronization and system events.
+- `service`: Foreground surveillance service for real-time sensor monitoring.
 
-### 2. Configure local.properties
+## 🔧 Setup & Installation
 
-Create `local.properties` in the **root** of the project (never committed to git):
+1. **Clone the repository.**
+2. **Add Configuration:** Create a `local.properties` file in the root directory and add your Supabase credentials:
+   ```properties
+   SUPABASE_URL="your_supabase_url"
+   SUPABASE_ANON_KEY="your_anon_key"
+   api.base.url="https://your-api-endpoint.com/"
+   ```
+3. **Build & Run:** Open the project in Android Studio (Koala or newer) and run the `app` module.
 
-```properties
-sdk.dir=/home/YOUR_USERNAME/Android/Sdk
-api.base.url=https://YOUR_PROJECT.mockapi.io/api/v1/
-```
+## 📜 Permissions
 
-**Setting up MockAPI (free):**
-1. Go to [mockapi.io](https://mockapi.io) and create a free project
-2. Add a resource called `incidents` with schema:
-   - `timestamp` (Number)
-   - `type` (String)
-   - `latitude` (Number)
-   - `longitude` (Number)
-3. Copy the base URL (e.g. `https://abc123.mockapi.io/api/v1/`) into `local.properties`
+GuardianTrack requires the following permissions to function effectively:
+- `ACCESS_FINE_LOCATION`: To tag incidents with precise coordinates.
+- `SEND_SMS`: To alert your emergency contacts.
+- `RECEIVE_BOOT_COMPLETED`: To restart monitoring automatically after a device reboot.
+- `POST_NOTIFICATIONS`: To provide immediate feedback and alarm controls.
 
-### 3. Build and run
-
-```bash
-./gradlew assembleDebug
-```
-
-Or press **Run** in Android Studio.
-
-## Required Permissions (all requested at runtime)
-
-| Permission | Purpose |
-|---|---|
-| `ACCESS_FINE_LOCATION` | GPS coordinates for incidents |
-| `SEND_SMS` | Emergency SMS (simulation mode ON by default) |
-| `POST_NOTIFICATIONS` | Android 13+ notification permission |
-| `RECEIVE_BOOT_COMPLETED` | Restart service after reboot |
-
-## Key Files
-
-| File | Purpose |
-|---|---|
-| `SurveillanceService.kt` | Foreground service + fall detection algorithm |
-| `Receivers.kt` | Battery + Boot BroadcastReceivers |
-| `Workers.kt` | WorkManager workers (sync, battery, boot) |
-| `EmergencyContactProvider.kt` | ContentProvider (signature-protected) |
-| `Repositories.kt` | Offline-first data layer |
-| `PreferencesManager.kt` | DataStore preferences |
-| `SecureStorage.kt` | EncryptedSharedPreferences |
-
-## Security Notes
-
-- `local.properties` is excluded from version control (see `.gitignore`)
-- The API base URL is injected via `BuildConfig` — not hardcoded
-- Emergency phone number is stored encrypted via `EncryptedSharedPreferences`
-- `EmergencyContactProvider` is protected by a `signature`-level custom permission
-- SMS simulation mode is **ON by default** to prevent accidental real SMS
-
-## SMS Simulation Mode
-
-The app ships with SMS simulation **enabled**. In this mode:
-- No real SMS is sent
-- A local notification is shown instead
-- The would-be message is logged to Logcat
-
-To test real SMS: go to Settings → disable "SMS Simulation Mode" (and ensure `SEND_SMS` permission is granted).
+---
+*Built with ❤️ for safety.*
