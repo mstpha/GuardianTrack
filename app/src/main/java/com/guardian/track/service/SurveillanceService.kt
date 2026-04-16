@@ -45,7 +45,7 @@ class SurveillanceService : Service() {
         const val CHANNEL_ID = "guardian_surveillance"
         const val NOTIFICATION_ID = 1
         const val FREEFALL_MAGNITUDE = 3.0f
-        const val FREEFALL_DURATION_MS = 200L
+        const val FREEFALL_DURATION_MS = 100L
         const val IMPACT_WINDOW_MS = 200L
         private const val TAG = "SurveillanceService"
 
@@ -61,7 +61,9 @@ class SurveillanceService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
         serviceScope.launch {
-            fallThreshold = preferencesManager.fallThreshold.first()
+            preferencesManager.fallThreshold.collect { newThreshold ->
+                fallThreshold = newThreshold
+            }
         }
         setupAccelerometer()
     }

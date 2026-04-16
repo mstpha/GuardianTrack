@@ -7,6 +7,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -29,6 +31,7 @@ import com.guardian.track.service.SurveillanceService
 import com.guardian.track.ui.dashboard.DashboardScreen
 import com.guardian.track.ui.history.HistoryScreen
 import com.guardian.track.ui.settings.SettingsScreen
+import com.guardian.track.ui.settings.SettingsViewModel
 import com.guardian.track.ui.theme.GuardianTrackTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -40,6 +43,8 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    private val settingsViewModel: SettingsViewModel by viewModels()
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -57,7 +62,9 @@ class MainActivity : ComponentActivity() {
         SurveillanceService.startService(this)
 
         setContent {
-            GuardianTrackTheme {
+            val settingsState by settingsViewModel.uiState.collectAsState()
+            
+            GuardianTrackTheme(darkTheme = settingsState.darkMode) {
                 MainScreen()
             }
         }
