@@ -4,23 +4,13 @@ import android.content.Context
 import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
-import com.guardian.track.data.local.PreferencesManager
-import com.guardian.track.data.local.dao.IncidentDao
-import com.guardian.track.data.local.entity.IncidentEntity
 import com.guardian.track.repository.IncidentRepository
 import com.guardian.track.service.SurveillanceService
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-import kotlinx.coroutines.flow.first
 
 /**
  * SyncWorker — runs when network becomes available to upload pending incidents.
- *
- * @HiltWorker: Hilt needs special treatment for Workers because WorkManager
- * creates them — not Hilt. @HiltWorker + @AssistedInject is the official pattern.
- *
- * WorkManager guarantees this runs even if the app is killed, as long as
- * the network constraint is eventually satisfied.
  */
 @HiltWorker
 class SyncWorker @AssistedInject constructor(
@@ -38,10 +28,8 @@ class SyncWorker @AssistedInject constructor(
     }
 }
 
-
 /**
  * BatteryCriticalWorker — saves a BATTERY incident to Room.
- * Called by BatteryReceiver which cannot access Room directly.
  */
 @HiltWorker
 class BatteryCriticalWorker @AssistedInject constructor(
@@ -51,6 +39,7 @@ class BatteryCriticalWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        SurveillanceService.createNotificationChannel(applicationContext)
         return try {
             incidentRepository.saveAndSync("BATTERY", 0.0, 0.0)
             Result.success()
@@ -71,10 +60,6 @@ class BatteryCriticalWorker @AssistedInject constructor(
 
 /**
  * BootSurveillanceWorker — restarts the SurveillanceService after device boot.
- *
- * This is the Android 12+ compliant solution. We cannot start a foreground
- * service from a BroadcastReceiver on API 31+. WorkManager handles the
- * platform restrictions and starts the service when conditions are met.
  */
 @HiltWorker
 class BootSurveillanceWorker @AssistedInject constructor(
@@ -83,6 +68,9 @@ class BootSurveillanceWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        // Essential: Create channel before starting service/notification
+        SurveillanceService.createNotificationChannel(applicationContext)
+        
         return try {
             SurveillanceService.startService(applicationContext)
             Log.i("BootWorker", "SurveillanceService restarted after boot")
@@ -93,8 +81,10 @@ class BootSurveillanceWorker @AssistedInject constructor(
         }
     }
 
-    override suspend fun getForegroundInfo(): ForegroundInfo =
-        ForegroundInfo(4, createNotification())
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        SurveillanceService.createNotificationChannel(applicationContext)
+        return ForegroundInfo(4, createNotification())
+    }
 
     private fun createNotification() =
         android.app.Notification.Builder(applicationContext, SurveillanceService.CHANNEL_ID)

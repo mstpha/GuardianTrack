@@ -3,6 +3,7 @@ package com.guardian.track.service
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.hardware.*
 import android.os.*
 import android.util.Log
@@ -54,12 +55,29 @@ class SurveillanceService : Service() {
 
         fun stopService(context: Context) =
             context.stopService(Intent(context, SurveillanceService::class.java))
+            
+        fun createNotificationChannel(context: Context) {
+            val channel = NotificationChannel(CHANNEL_ID, "Surveillance", NotificationManager.IMPORTANCE_LOW)
+                .apply { description = "GuardianTrack active monitoring" }
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(channel)
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        createNotificationChannel(this)
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIFICATION_ID, 
+                buildNotification(), 
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, buildNotification())
+        }
+        
         serviceScope.launch {
             preferencesManager.fallThreshold.collect { newThreshold ->
                 fallThreshold = newThreshold
@@ -150,12 +168,6 @@ class SurveillanceService : Service() {
         sensorManager.unregisterListener(sensorEventListener)
         sensorThread.quitSafely()
         serviceScope.cancel()
-    }
-
-    private fun createNotificationChannel() {
-        val channel = NotificationChannel(CHANNEL_ID, "Surveillance", NotificationManager.IMPORTANCE_LOW)
-            .apply { description = "GuardianTrack active monitoring" }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     private fun buildNotification(): Notification {

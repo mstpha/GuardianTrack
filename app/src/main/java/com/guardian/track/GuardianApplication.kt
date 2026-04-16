@@ -9,11 +9,7 @@ import javax.inject.Inject
 /**
  * Application entry point.
  *
- * @HiltAndroidApp triggers Hilt's code generation and sets up the root DI component.
- *
  * Implements Configuration.Provider so WorkManager uses Hilt's WorkerFactory.
- * This is required for @HiltWorker — without it, WorkManager creates Workers
- * via reflection and can't inject their dependencies.
  */
 @HiltAndroidApp
 class GuardianApplication : Application(), Configuration.Provider {

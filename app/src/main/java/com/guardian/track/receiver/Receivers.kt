@@ -3,13 +3,16 @@ package com.guardian.track.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.work.*
 import com.guardian.track.util.NotificationHelper
 import com.guardian.track.worker.BatteryCriticalWorker
 import com.guardian.track.worker.BootSurveillanceWorker
 
 class BatteryReceiver : BroadcastReceiver() {
+    @RequiresApi(Build.VERSION_CODES.P)
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BATTERY_LOW) return
         Log.i("BatteryReceiver", "Battery low — scheduling incident record")

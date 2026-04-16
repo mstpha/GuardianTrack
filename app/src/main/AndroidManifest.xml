@@ -3,35 +3,16 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!-- ===== PERMISSIONS ===== -->
-    <!-- Location: needed for GPS coords when an incident occurs -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-
-    <!-- Foreground service location type (Android 10+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-
-    <!-- SMS for emergency alerts (runtime permission required) -->
     <uses-permission android:name="android.permission.SEND_SMS" />
-
-    <!-- Notifications (Android 13+ requires runtime permission) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- Receive boot completed to restart the surveillance service -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-
-    <!-- Internet for Retrofit sync -->
     <uses-permission android:name="android.permission.INTERNET" />
-
-    <!-- Network state for WorkManager constraints -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- ===== CUSTOM PERMISSION — protects our ContentProvider ===== -->
-    <!--
-        protectionLevel="signature": only apps signed with our certificate can
-        read emergency contacts. This prevents rogue apps from querying our data.
-        "signature|privileged" would also allow system privileged apps.
-    -->
     <permission
         android:name="com.guardian.track.READ_EMERGENCY_CONTACTS"
         android:protectionLevel="signature" />
@@ -47,7 +28,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.GuardianTrack">
 
-        <!-- ===== MAIN ACTIVITY — single-activity architecture ===== -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true">
@@ -57,62 +37,48 @@
             </intent-filter>
         </activity>
 
-        <!-- ===== FOREGROUND SERVICE ===== -->
-        <!--
-            foregroundServiceType="location": required on Android 10+ to access
-            location in a foreground service.
-        -->
         <service
             android:name=".service.SurveillanceService"
             android:exported="false"
-            android:foregroundServiceType="location" />
+            android:foregroundServiceType="location"
+            android:directBootAware="true" />
 
-        <!-- ===== BROADCAST RECEIVERS ===== -->
-
-        <!-- Battery low: registered in manifest so it fires even when app is killed -->
         <receiver
             android:name=".receiver.BatteryReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="android.intent.ACTION_BATTERY_LOW" />
+                <action android:name="android.intent.action.ACTION_BATTERY_LOW" />
             </intent-filter>
         </receiver>
 
-        <!-- Boot completed: restarts surveillance after phone reboot -->
         <receiver
             android:name=".receiver.BootReceiver"
             android:exported="true"
+            android:directBootAware="true"
             android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <!-- Needed on some devices for locked-storage boot -->
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
         <receiver android:name=".util.StopAlarmReceiver" />
-        <receiver android:name=".receiver.AlarmStopReceiver" android:exported="false">
-            <intent-filter>
-                <action android:name="com.guardian.track.STOP_ALARM" />
-            </intent-filter>
-        </receiver>
-        <!-- ===== CONTENT PROVIDER ===== -->
-        <!--
-            Exposes emergency contacts to other apps with the READ_EMERGENCY_CONTACTS
-            permission. readPermission restricts queries; writePermission is not
-            declared so external apps can never modify our contacts.
-        -->
+        
+
         <provider
             android:name=".provider.EmergencyContactProvider"
             android:authorities="com.guardian.track.provider"
             android:exported="true"
             android:readPermission="com.guardian.track.READ_EMERGENCY_CONTACTS" />
 
+        <!-- We mark the WorkManager initializer as directBootAware so it can
+             schedule the restart task even when the phone is locked. -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
             android:exported="false"
+            android:directBootAware="true"
             tools:node="merge">
-            <!-- This disables the default WorkManager initializer -->
             <meta-data
                 android:name="androidx.work.WorkManagerInitializer"
                 android:value="androidx.startup"
